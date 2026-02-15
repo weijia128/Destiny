@@ -226,10 +226,10 @@ export class BaziPromptBuilder implements PromptBuilder {
     category: SubCategory,
     formattedData: FormattedData,
     knowledge: string,
-    userMessage: string,
-    history: ChatMessage[]
+    _userMessage: string,
+    _history: ChatMessage[]
   ): PromptBuildResult {
-    const { text: chartText, metadata } = formattedData;
+    const { text: chartText } = formattedData;
     const categoryName = this.getCategoryName(category);
 
     const systemPrompt = `你是一位精通八字命理的命理大师，名叫"八字先生"。你需要根据用户的八字四柱，结合专业的命理知识，为用户提供客观、专业、实事求是的命理分析。

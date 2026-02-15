@@ -1,5 +1,4 @@
 import type { AgentState, AgentNode, ChatMessage, AnalysisCategory, ZiweiChart } from '@/types';
-import { formatChartToReadableText, getCurrentMajorPeriod, getCurrentYearlyFortune } from './chartService';
 import { promptBuilderFactory, ZiweiPromptBuilder } from './prompts';
 import type { PromptBuildResult, FormattedData } from './prompts';
 

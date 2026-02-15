@@ -146,8 +146,9 @@ export async function* streamChat(
 
 /**
  * 模拟流式响应（当后端不可用时）
+ * @internal 备用函数，暂未使用但保留用于降级场景
  */
-async function* simulateStreamResponse(
+export async function* _simulateStreamResponse(
   _message: string,
   chart: ZiweiChart,
   category: AnalysisCategory,

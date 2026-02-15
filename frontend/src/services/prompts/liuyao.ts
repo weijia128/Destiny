@@ -222,8 +222,8 @@ export class LiuyaoPromptBuilder implements PromptBuilder {
     category: SubCategory,
     formattedData: FormattedData,
     knowledge: string,
-    userMessage: string,
-    history: ChatMessage[]
+    _userMessage: string,
+    _history: ChatMessage[]
   ): PromptBuildResult {
     const { text: chartText } = formattedData;
     const categoryName = this.getCategoryName(category);

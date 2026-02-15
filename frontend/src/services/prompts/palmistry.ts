@@ -4,7 +4,7 @@
 
 import type { PromptBuilder, PromptBuildResult, FormattedData } from './index';
 import type { SubCategory, ChatMessage } from '@/types';
-import type { PalmReading, PalmFeature } from '@/types';
+import type { PalmReading } from '@/types';
 
 /**
  * 手相占卜知识库
@@ -290,8 +290,8 @@ export class PalmistryPromptBuilder implements PromptBuilder {
     category: SubCategory,
     formattedData: FormattedData,
     knowledge: string,
-    userMessage: string,
-    history: ChatMessage[]
+    _userMessage: string,
+    _history: ChatMessage[]
   ): PromptBuildResult {
     const { text: chartText } = formattedData;
     const categoryName = this.getCategoryName(category);
