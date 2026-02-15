@@ -1,4 +1,4 @@
-import { StateGraph } from '@langchain/langgraph';
+import { StateGraph, START, END } from '@langchain/langgraph';
 import { StateAnnotation } from '../types/graph.js';
 import { reactReasoningNode, reactToolCallNode, reactFinalAnswerNode } from './reactNodes.js';
 
@@ -8,20 +8,20 @@ import { reactReasoningNode, reactToolCallNode, reactFinalAnswerNode } from './r
  */
 export function createReactGraph() {
   // 创建状态图
-  const workflow = new StateGraph(StateAnnotation);
+  const workflow = new StateGraph({ stateSchema: StateAnnotation });
+
+  // 设置入口点 (必须在添加节点之前)
+  (workflow as any).setEntryPoint('reactReasoning');
 
   // 添加 ReAct 节点
   workflow.addNode('reactReasoning', reactReasoningNode);
   workflow.addNode('reactToolCall', reactToolCallNode);
   workflow.addNode('reactFinalAnswer', reactFinalAnswerNode);
 
-  // 设置起始点
-  workflow.setEntryPoint('reactReasoning');
-
   // 添加状态流转边
-  workflow.addConditionalEdges(
+  (workflow as any).addConditionalEdges(
     'reactReasoning',
-    (state) => {
+    (state: any) => {
       // 根据 AI 决策决定下一步
       if (state.reactPhase === 'action') {
         return 'reactToolCall';
@@ -41,10 +41,10 @@ export function createReactGraph() {
   );
 
   // 工具调用后回到思考节点
-  workflow.addEdge('reactToolCall', 'reactReasoning');
+  (workflow as any).addEdge('reactToolCall', 'reactReasoning');
 
   // 设置结束点
-  workflow.setFinishPoint('reactFinalAnswer');
+  (workflow as any).setFinishPoint('reactFinalAnswer');
 
   return workflow.compile();
 }
@@ -68,7 +68,7 @@ export async function streamAnalyzeWithReAct(
   // 构建初始状态
   const initialState = {
     birthInfo,
-    category,
+    category: category as any, // 类型断言以兼容 LangGraph
     chartText,
     history,
     useReAct: true,

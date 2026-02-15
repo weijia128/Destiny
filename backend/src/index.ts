@@ -334,7 +334,7 @@ app.post('/api/chat/react/stream', async (req, res) => {
     // 检查缓存
     const cached = cacheRepository.get(chartKey, `react_stream_${category}`);
     if (cached) {
-      console.log(`✅ ReAct stream cache hit for chartKey=${chartKey}`);
+      console.log(`[ReAct] Cache hit for chartKey=${chartKey}`);
       if (cached.id) {
         cacheRepository.incrementHitCount(cached.id);
       }
@@ -351,7 +351,7 @@ app.post('/api/chat/react/stream', async (req, res) => {
       return;
     }
 
-    console.log(`❌ ReAct stream cache miss, starting ReAct streaming...`);
+    console.log(`[ReAct] Cache miss, starting ReAct streaming...`);
 
     // 设置 SSE 头
     res.setHeader('Content-Type', 'text/event-stream');
@@ -368,27 +368,28 @@ app.post('/api/chat/react/stream', async (req, res) => {
     const startTime = Date.now();
     let fullResponse = '';
 
-    // 使用 ReAct 流式分析
-    for await (const chunk of streamAnalyzeWithReAct(
-      { year: 0, month: 0, day: 0, hour: 0, gender: 'male', isLunar: false }, // birthInfo
-      category,
-      chart,
-      fullHistory,
-      { enableKnowledge, enableExternal, maxToolCalls }
-    )) {
-      res.write(chunk);
-      // 收集完整响应用于缓存
-      const match = chunk.match(/data: (.+)\n\n/);
-      if (match) {
-        try {
-          const data = JSON.parse(match[1]);
-          if (data.type === 'token' && data.content) {
-            fullResponse += data.content;
-          }
-        } catch {
-          // 忽略解析错误
-        }
+    try {
+      // 使用 ReAct 流式分析（非异步生成器，直接 await）
+      const result = await streamAnalyzeWithReAct(
+        { year: 0, month: 0, day: 0, hour: 0, gender: 'male', isLunar: false }, // birthInfo
+        category,
+        chart,
+        fullHistory,
+        { enableKnowledge, enableExternal, maxToolCalls }
+      );
+
+      // 将结果转换为 SSE 格式
+      if (result.success && result.finalAnswer) {
+        const responseChunk = `data: ${JSON.stringify({ type: 'token', content: result.finalAnswer })}\n\n`;
+        res.write(responseChunk);
+        fullResponse = result.finalAnswer;
       }
+
+      res.write('data: [DONE]\n\n');
+    } catch (error) {
+      console.error('ReAct analysis error:', error);
+      res.write(`data: ${JSON.stringify({ type: 'error', content: 'ReAct analysis failed' })}\n\n`);
+      res.write('data: [DONE]\n\n');
     }
 
     const executionTime = (Date.now() - startTime) / 1000;
@@ -399,7 +400,7 @@ app.post('/api/chat/react/stream', async (req, res) => {
         executionTime,
         tokenCount: undefined,
       });
-      console.log(`💾 ReAct stream response saved to cache: chartKey=${chartKey}`);
+      console.log(`ReAct stream response saved to cache: chartKey=${chartKey}`);
     }
 
     res.end();

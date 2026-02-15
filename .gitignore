@@ -2,3 +2,10 @@ node_modules
 .env
 .env.*
 env.template
+.DS_Store
+.env
+
+
+# 用户报告和原始数据（本地存储，不上传）
+backend/reports/
+reports/

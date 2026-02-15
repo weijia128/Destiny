@@ -6,8 +6,8 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// 报告保存目录（iCloud Drive 同步目录）
-const REPORTS_DIR = '/Users/weijia/Library/Mobile Documents/com~apple~CloudDocs/code/data';
+// 报告保存目录（项目相对路径）
+const REPORTS_DIR = join(__dirname, '../../reports');
 
 /**
  * 确保报告目录存在

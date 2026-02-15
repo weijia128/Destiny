@@ -47,7 +47,7 @@ export async function reactReasoningNode(
             reasoning: decision.thought,
           },
         ],
-        toolCallCount: (toolCallCount || 0) + 1,
+        toolCallCount: ((toolCallCount as number) || 0) + 1,
       };
     } else {
       // 不需要工具或达到最大调用次数，生成最终答案

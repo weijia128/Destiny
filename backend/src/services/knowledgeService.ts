@@ -173,7 +173,7 @@ export class KnowledgeService {
    * @param query - 查询文本
    * @returns 排序后的知识条目（最多返回 5 条）
    */
-  static rank(entries: KnowledgeEntry[], query: string): KnowledgeEntry[] {
+  static rank(entries: KnowledgeEntry[], query: string): Array<KnowledgeEntry & { score: number }> {
     const queryLower = query.toLowerCase();
 
     return entries

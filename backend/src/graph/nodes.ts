@@ -243,12 +243,6 @@ export async function retrieveRAGNode(
 
       return {
         retrievedContext: context,
-        // 保存 RAG 元数据用于调试
-        metadata: {
-          ragStrategy: result.strategy,
-          ragEntities: result.entities,
-          ragSources: result.sources.map(s => s.id),
-        }
       };
     } catch (error) {
       console.warn('⚠️ [RAG] Service call failed, falling back to legacy knowledge');
@@ -291,11 +285,6 @@ async function retrieveRAGFallback(
 
   return {
     retrievedContext: context,
-    metadata: {
-      ragStrategy: 'fallback',
-      ragEntities: [],
-      ragSources: [],
-    }
   };
 }
 

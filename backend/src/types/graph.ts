@@ -29,7 +29,7 @@ export const StateAnnotation = Annotation.Root({
   birthInfo: Annotation<BirthInfo>,
   category: Annotation<AnalysisCategory>,
   history: Annotation<ChatMessage[]>({
-    reducer: (_, y) => y,
+    reducer: (existing, newValue) => newValue ?? existing,
     default: () => [],
   }),
   chart: Annotation<ZiweiChart | undefined>,
@@ -38,6 +38,7 @@ export const StateAnnotation = Annotation.Root({
   promptData: Annotation<PromptData | undefined>,
   nextNode: Annotation<string | undefined>,
   metadata: Annotation<Record<string, any> | undefined>({
+    reducer: (existing, newValue) => newValue ?? existing,
     default: () => ({}),
   }),
   response: Annotation<string | undefined>,
@@ -47,32 +48,35 @@ export const StateAnnotation = Annotation.Root({
 
   // ReAct 模式开关
   useReAct: Annotation<boolean>({
+    reducer: (existing, newValue) => newValue ?? existing,
     default: () => false
   }),
 
   // AI 思考过程（后台记录，不向用户展示）
   reasoning: Annotation<string[]>({
-    reducer: (x, y) => [...(x || []), ...(y || [])],
+    reducer: (existing = [], newValue = []) => [...existing, ...newValue],
     default: () => []
   }),
 
   // 工具调用历史
   toolCalls: Annotation<ToolCallRequest[]>({
-    reducer: (x, y) => [...(x || []), ...(y || [])],
+    reducer: (existing = [], newValue = []) => [...existing, ...newValue],
     default: () => []
   }),
 
   // 工具执行结果
   toolResults: Annotation<ToolCallResponse[]>({
-    reducer: (x, y) => [...(x || []), ...(y || [])],
+    reducer: (existing = [], newValue = []) => [...existing, ...newValue],
     default: () => []
   }),
 
   // ReAct 循环控制
   maxToolCalls: Annotation<number>({
+    reducer: (existing, newValue) => newValue ?? existing,
     default: () => 5
   }), // 最大工具调用次数
   toolCallCount: Annotation<number>({
+    reducer: (existing, newValue) => newValue ?? existing,
     default: () => 0
   }), // 当前工具调用次数
 
