@@ -4,6 +4,7 @@
 
 import type { PromptBuilder, PromptBuildResult } from './index';
 import type { SubCategory, ChatMessage } from '../types/index.js';
+import type { PromptPersonalization } from './index';
 
 /**
  * 紫微斗数类别名称映射
@@ -18,6 +19,18 @@ const ZIWEI_CATEGORY_NAMES: Record<string, string> = {
   ziweigeju: '紫微格局',
   sixi: '四化飞星',
   dashun: '大运分析',
+};
+
+const ZIWEI_CATEGORY_GUIDANCE: Record<string, string> = {
+  career: '重点看官禄宫主星、四化入官禄、命宫与官禄宫互动、迁移宫对事业场景的影响。',
+  wealth: '重点看财帛宫主星、化禄化忌对财帛宫的作用、田宅宫与资产沉淀能力。',
+  relationship: '重点看夫妻宫主星、化禄化忌入夫妻宫、命宫与夫妻宫对照关系。',
+  health: '重点看疾厄宫主星、四化入疾厄宫、命盘五行局对体质倾向的影响。',
+  family: '重点看父母宫、兄弟宫、子女宫三宫主星与四化，分析家庭支持与责任结构。',
+  general: '重点看命宫主星、五行局、当前大限与命宫主轴的整体协同。',
+  ziweigeju: '重点识别紫微格局类型（如紫府同宫、日月并明等）及其成立条件。',
+  sixi: '重点分析化禄、化权、化科、化忌的来源星、落宫与对宫联动关系。',
+  dashun: '重点看当前大限宫位、大限四化及对宫牵动，评估阶段性主题。',
 };
 
 /**
@@ -50,9 +63,21 @@ export class ZiweiPromptBuilder implements PromptBuilder {
     category: SubCategory,
     knowledge: string,
     userMessage: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
   ): PromptBuildResult {
     const categoryName = this.getCategoryName(category);
+    const categoryGuidance = ZIWEI_CATEGORY_GUIDANCE[category] || ZIWEI_CATEGORY_GUIDANCE.general;
+    const personalizationLines: string[] = [];
+    if (typeof personalization?.currentYear === 'number') {
+      personalizationLines.push(`当前年份：${personalization.currentYear}年`);
+    }
+    if (typeof personalization?.currentAge === 'number') {
+      personalizationLines.push(`命主当前年龄：${personalization.currentAge}岁`);
+    }
+    if (personalizationLines.length > 0) {
+      personalizationLines.push('分析时请结合当前阶段，不要脱离当前流年语境。');
+    }
 
     const systemPrompt = `你是一位精通紫微斗数的命理分析师，名叫"天机大师"。你需要根据用户的命盘信息，结合专业的紫微斗数知识，为用户提供客观、专业、实事求是的命理分析。
 
@@ -72,6 +97,11 @@ export class ZiweiPromptBuilder implements PromptBuilder {
 - 职业建议要加**前提条件**，不是什么都适合
 
 当前分析主题：${categoryName}
+本次分析重点：${categoryGuidance}
+
+${personalizationLines.length > 0 ? `【个性化信息】
+${personalizationLines.join('\n')}
+` : ''}
 
 用户的命盘信息：
 ${chartText}

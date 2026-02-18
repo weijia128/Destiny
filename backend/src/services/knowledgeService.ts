@@ -107,6 +107,7 @@ export class KnowledgeService {
     const exclusiveCategories: Record<DestinyType, SubCategory[]> = {
       ziwei: ['ziweigeju', 'sixi', 'dashun'],
       bazi: ['geju', 'yongshen', 'shishen', 'dayun'],
+      meihua: [],
       qimen: ['jushi', 'men', 'xing', 'shen'],
       liuyao: ['gua', 'liuyaoyin', 'shiyin'],
       shouxiang: ['xian', 'qiu', 'zhi', 'wen'],

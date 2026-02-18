@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createHash } from 'crypto';
 import type { ChatRequest, ApiResponse } from './types/index.js';
+import type { V2AnalyzeRequest } from './agents/types.js';
 import { initDatabase } from './database/index.js';
 import { knowledgeRepository } from './repositories/KnowledgeRepository.js';
 import { cacheRepository } from './repositories/CacheRepository.js';
@@ -10,6 +11,17 @@ import { analyzeDestiny, streamAnalyzeDestiny } from './graph/destinyGraph.js';
 import { analyzeWithReAct, streamAnalyzeWithReAct, validateReactConfig } from './graph/reactGraph.js';
 import { errorHandler, asyncHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { ValidationError } from './errors/AppError.js';
+import { agentRegistry } from './agents/registry.js';
+import { ZiweiAgent } from './agents/ziweiAgent.js';
+import { BaziAgent } from './agents/baziAgent.js';
+import { MeihuaAgent } from './agents/meihuaAgent.js';
+import { buildDispatch, dispatchAnalyze, dispatchStream } from './agents/supervisorAgent.js';
+import { fuseResults, fuseResultsStream } from './agents/fusionAgent.js';
+
+// ── 注册所有 Sub-Agent ─────────────────────────────────────────────────
+agentRegistry.register(new ZiweiAgent());
+agentRegistry.register(new BaziAgent());
+agentRegistry.register(new MeihuaAgent());
 
 // 注意: 环境变量通过 interpretationService.ts 导入的 config/env.js 自动加载
 
@@ -662,6 +674,107 @@ app.delete('/api/reports/:filename', async (req, res) => {
 });
 
 // =====================================================
+// v2 API — Multi-Agent 分析端点
+// =====================================================
+
+/**
+ * POST /api/v2/analyze
+ * 非流式多 Agent 分析，自动路由 + 融合
+ */
+app.post('/api/v2/analyze', asyncHandler(async (req, res) => {
+  const body = req.body as V2AnalyzeRequest;
+  const { birthInfo, userMessage, history = [], preferredTypes, subCategory } = body;
+
+  if (!birthInfo || !userMessage) {
+    throw new ValidationError('Missing required fields: birthInfo, userMessage', {
+      receivedFields: { birthInfo: !!birthInfo, userMessage: !!userMessage },
+    });
+  }
+
+  console.log(`🤖 [v2] Analyze request: "${userMessage.slice(0, 50)}..."`);
+
+  const dispatch = buildDispatch({ birthInfo, userMessage, history, preferredTypes, subCategory });
+  console.log(`🔀 [v2] Dispatch → ${dispatch.targetAgents.join(', ')} (shouldFuse=${dispatch.shouldFuse})`);
+
+  const agentResults = await dispatchAnalyze(
+    { birthInfo, userMessage, history, preferredTypes, subCategory },
+    dispatch,
+  );
+
+  let narrative: string;
+  let fusion = undefined;
+
+  if (dispatch.shouldFuse && agentResults.length > 1) {
+    const fusionOutput = await fuseResults({
+      userMessage,
+      agentResults,
+      dispatch,
+    });
+    narrative = fusionOutput.narrative;
+    fusion = fusionOutput;
+  } else {
+    narrative = agentResults[0]?.analysis || '分析失败，未获得结果';
+  }
+
+  res.json({
+    success: true,
+    data: {
+      narrative,
+      agentResults,
+      fusion,
+      dispatch,
+    },
+  } as ApiResponse);
+}));
+
+/**
+ * POST /api/v2/analyze/stream
+ * 流式多 Agent 分析（primary agent 流式，其余后台）
+ */
+app.post('/api/v2/analyze/stream', async (req, res) => {
+  try {
+    const body = req.body as V2AnalyzeRequest;
+    const { birthInfo, userMessage, history = [], preferredTypes, subCategory } = body;
+
+    if (!birthInfo || !userMessage) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    console.log(`🤖 [v2/stream] Analyze request: "${userMessage.slice(0, 50)}..."`);
+
+    const dispatch = buildDispatch({ birthInfo, userMessage, history, preferredTypes, subCategory });
+    console.log(`🔀 [v2/stream] Dispatch → ${dispatch.targetAgents.join(', ')}`);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // 发送 dispatch 信息
+    res.write(`data: ${JSON.stringify({ type: 'dispatch', dispatch })}\n\n`);
+
+    for await (const chunk of dispatchStream(
+      { birthInfo, userMessage, history, preferredTypes, subCategory },
+      dispatch,
+    )) {
+      res.write(chunk);
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('[v2/stream] Error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'v2 streaming error',
+      });
+    } else {
+      res.end();
+    }
+  }
+});
+
+// =====================================================
 // 错误处理中间件（必须放在所有路由之后）
 // =====================================================
 
@@ -690,7 +803,10 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/cache/chart/:chartKey - Get chart caches`);
   console.log(`   DELETE /api/cache/chart/:chartKey - Clear chart cache`);
   console.log(`   DELETE /api/cache/expired/:days - Clear expired cache`);
+  console.log(`   🤖 POST /api/v2/analyze - Multi-Agent 综合分析`);
+  console.log(`   🤖 POST /api/v2/analyze/stream - Multi-Agent 流式分析`);
   console.log(`🧠 ReAct 模式已启用，支持工具调用和动态分析！`);
+  console.log(`🤖 Multi-Agent 模式已启用：已注册 ${agentRegistry.getRegisteredTypes().join('、')} Agent`);
 });
 
 export default app;

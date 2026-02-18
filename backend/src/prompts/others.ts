@@ -3,8 +3,23 @@
  * 包含八字、奇门遁甲、六爻、手相
  */
 
-import type { PromptBuilder, PromptBuildResult } from './index';
+import type { PromptBuilder, PromptBuildResult, PromptPersonalization } from './index';
 import type { SubCategory, ChatMessage } from '../types/index.js';
+
+function buildPersonalizationBlock(personalization?: PromptPersonalization): string {
+  const lines: string[] = [];
+  if (typeof personalization?.currentYear === 'number') {
+    lines.push(`当前年份：${personalization.currentYear}年`);
+  }
+  if (typeof personalization?.currentAge === 'number') {
+    lines.push(`命主当前年龄：${personalization.currentAge}岁`);
+  }
+  if (lines.length === 0) return '';
+
+  return `【个性化信息】
+${lines.join('\n')}
+分析时请优先回答用户“当前阶段”关切。`;
+}
 
 /**
  * 八字类别名称
@@ -43,13 +58,17 @@ export class BaziPromptBuilder implements PromptBuilder {
     category: SubCategory,
     knowledge: string,
     userMessage: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
   ): PromptBuildResult {
     const categoryName = this.getCategoryName(category);
+    const personalizationBlock = buildPersonalizationBlock(personalization);
 
     const systemPrompt = `你是一位精通八字命理的命理大师，名叫"八字先生"。你需要根据用户的八字四柱，结合专业的命理知识，为用户提供客观、专业、实事求是的命理分析。
 
 当前分析主题：${categoryName}
+
+${personalizationBlock}
 
 用户的八字信息：
 ${chartText}
@@ -108,13 +127,17 @@ export class QimenPromptBuilder implements PromptBuilder {
     category: SubCategory,
     knowledge: string,
     userMessage: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
   ): PromptBuildResult {
     const categoryName = this.getCategoryName(category);
+    const personalizationBlock = buildPersonalizationBlock(personalization);
 
     const systemPrompt = `你是一位精通奇门遁甲的预测大师，名叫"奇门先生"。奇门遁甲是中国古代最高层次的预测学，被誉为"帝王之学"。你需要根据奇门盘式，结合专业的奇门遁甲理论，为用户提供客观、专业的预测分析。
 
 当前分析主题：${categoryName}
+
+${personalizationBlock}
 
 用户的奇门盘式信息：
 ${chartText}
@@ -172,13 +195,17 @@ export class LiuyaoPromptBuilder implements PromptBuilder {
     category: SubCategory,
     knowledge: string,
     userMessage: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
   ): PromptBuildResult {
     const categoryName = this.getCategoryName(category);
+    const personalizationBlock = buildPersonalizationBlock(personalization);
 
     const systemPrompt = `你是一位精通六爻预测的大师，名叫"六爻先生"。六爻预测是中国古代最实用的预测方法之一，通过起卦、装卦、断卦来预测吉凶。你需要根据六爻卦象，结合专业的六爻理论，为用户提供客观、准确的预测分析。
 
 当前分析主题：${categoryName}
+
+${personalizationBlock}
 
 用户的六爻卦象信息：
 ${chartText}
@@ -237,13 +264,17 @@ export class PalmistryPromptBuilder implements PromptBuilder {
     category: SubCategory,
     knowledge: string,
     userMessage: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
   ): PromptBuildResult {
     const categoryName = this.getCategoryName(category);
+    const personalizationBlock = buildPersonalizationBlock(personalization);
 
     const systemPrompt = `你是一位精通手相学的相术大师，名叫"手相先生"。手相学是通过观察手掌的纹路、丘位、手指等特征来分析人的性格和命运的学问。你需要根据手相特征，结合专业的手相学理论，为用户提供客观、准确的分析。
 
 当前分析主题：${categoryName}
+
+${personalizationBlock}
 
 用户的手相特征信息：
 ${chartText}

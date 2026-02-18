@@ -16,6 +16,11 @@ export interface PromptBuildResult {
   categoryName: string;
 }
 
+export interface PromptPersonalization {
+  currentYear?: number;
+  currentAge?: number;
+}
+
 /**
  * Prompt 构建器接口
  * 每个占卜方法需要实现这个接口
@@ -34,7 +39,8 @@ export interface PromptBuilder {
     category: SubCategory,
     knowledge: string,
     userMessage: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
   ): PromptBuildResult;
 
   /**

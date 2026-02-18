@@ -107,6 +107,39 @@ describe('PromptBuilderFactory', () => {
 
       expect(result.messages.length).toBeGreaterThan(0);
     });
+
+    it('紫微 prompt 应包含分类引导和个性化信息', () => {
+      const builder = promptBuilderFactory.getBuilder('ziwei')!;
+      const result = builder.buildPrompt(
+        '命盘文本',
+        'career',
+        '知识库内容',
+        '我今年事业如何？',
+        [],
+        { currentYear: 2026, currentAge: 36 }
+      );
+
+      expect(result.system).toContain('本次分析重点');
+      expect(result.system).toContain('官禄宫主星');
+      expect(result.system).toContain('当前年份：2026年');
+      expect(result.system).toContain('命主当前年龄：36岁');
+    });
+
+    it('八字 prompt 应包含个性化年份信息', () => {
+      const builder = promptBuilderFactory.getBuilder('bazi')!;
+      const result = builder.buildPrompt(
+        '八字命盘',
+        'dayun',
+        '知识库内容',
+        '我今年运势怎么样？',
+        [],
+        { currentYear: 2026, currentAge: 36 }
+      );
+
+      expect(result.system).toContain('【个性化信息】');
+      expect(result.system).toContain('当前年份：2026年');
+      expect(result.system).toContain('命主当前年龄：36岁');
+    });
   });
 
   describe('getCategoryName', () => {
