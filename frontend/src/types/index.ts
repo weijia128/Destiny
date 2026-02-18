@@ -143,6 +143,7 @@ export interface Transformation {
 export type DestinyType =
   | 'ziwei'      // 紫微斗数
   | 'bazi'       // 八字命理
+  | 'meihua'     // 梅花易数
   | 'qimen'      // 奇门遁甲
   | 'liuyao'     // 六爻占卜
   | 'shouxiang'; // 手相面相

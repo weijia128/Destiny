@@ -26,18 +26,18 @@ export const MAIN_CATEGORIES = [
     color: 'from-purple-500 to-indigo-600',
   },
   {
+    id: 'meihua',
+    name: '梅花易数',
+    description: '以时间与数起卦，占测吉凶与行动建议',
+    icon: '🌸',
+    color: 'from-sky-500 to-blue-600',
+  },
+  {
     id: 'bazi',
     name: '八字命理',
     description: '四柱八字，天干地支推演人生',
     icon: '🔮',
     color: 'from-amber-500 to-orange-600',
-  },
-  {
-    id: 'qimen',
-    name: '奇门遁甲',
-    description: '古代帝王之术，预测与决策',
-    icon: '🌀',
-    color: 'from-teal-500 to-cyan-600',
   },
   {
     id: 'liuyao',

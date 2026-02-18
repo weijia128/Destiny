@@ -13,7 +13,7 @@ import {
   PalmistryDisplay,
 } from '@/components';
 import { useAppStore } from '@/store';
-import { generateChart, streamChat, saveReportToServer } from '@/services/api';
+import { generateChart, streamChat, saveReportToServer, analyzeMeihua } from '@/services/api';
 import { formatChartToReadableText, getCurrentMajorPeriod, getCurrentYearlyFortune } from '@/services/chartService';
 import { generatePalmReading } from '@/services/palmistryService';
 import type { BirthInfo, AnalysisCategory, ChatMessage, PalmAnalysisCategory, PalmReading } from '@/types';
@@ -69,7 +69,7 @@ function buildFollowUpPrompt(currentInfo: ReturnType<typeof getCurrentMajorPerio
   `.trim();
 }
 
-type AppStep = 'category' | 'birthInfo' | 'chart' | 'report' | 'analysis' | 'palmistryForm' | 'palmistryResult';
+type AppStep = 'category' | 'birthInfo' | 'chart' | 'report' | 'analysis' | 'meihua' | 'palmistryForm' | 'palmistryResult';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('category');
@@ -97,6 +97,10 @@ export default function App() {
   const handleCategorySelect = (categoryId: string) => {
     if (categoryId === 'ziwei') {
       setStep('birthInfo');
+    } else if (categoryId === 'meihua') {
+      resetAll();
+      setCurrentCategory('general');
+      setStep('meihua');
     } else if (categoryId === 'palmistry') {
       setStep('palmistryForm');
     } else {
@@ -403,6 +407,46 @@ ${errorMsg}
     }
   }, [chart, currentCategory, messages, addMessage, updateMessage, setIsLoading, reportContent]);
 
+  // 梅花易数发送消息（非流式，占位版：先跑通链路）
+  const handleSendMeihuaMessage = useCallback(async (content: string) => {
+    const category = currentCategory || 'general';
+
+    // 添加用户消息
+    const userMsg: ChatMessage = {
+      id: generateId(),
+      role: 'user',
+      content,
+      timestamp: new Date(),
+      category,
+    };
+    addMessage(userMsg);
+
+    // 添加 AI 消息占位
+    const aiMsgId = generateId();
+    addMessage({
+      id: aiMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      category,
+      isStreaming: true,
+    });
+
+    setIsLoading(true);
+    try {
+      const result = await analyzeMeihua(content, category, messages);
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '请求失败');
+      }
+      updateMessage(aiMsgId, result.data.narrative || '（无返回内容）');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'API 调用失败';
+      updateMessage(aiMsgId, `❌ **API 调用失败**\n\n${errorMsg}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addMessage, analyzeMeihua, currentCategory, messages, setIsLoading, updateMessage]);
+
   // 返回上一步
   const handleBack = () => {
     switch (step) {
@@ -418,6 +462,10 @@ ${errorMsg}
         break;
       case 'analysis':
         setStep('report');
+        break;
+      case 'meihua':
+        resetAll();
+        setStep('category');
         break;
       case 'palmistryForm':
         setStep('category');
@@ -460,8 +508,22 @@ ${errorMsg}
               </button>
 
               <h1 className="font-display text-lg font-bold">
-                <span className="text-gradient-gold">紫微</span>
-                <span className="text-white">斗数</span>
+                {step === 'meihua' ? (
+                  <>
+                    <span className="text-gradient-gold">梅花</span>
+                    <span className="text-white">易数</span>
+                  </>
+                ) : step === 'palmistryForm' || step === 'palmistryResult' ? (
+                  <>
+                    <span className="text-gradient-gold">手相</span>
+                    <span className="text-white">占卜</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-gradient-gold">紫微</span>
+                    <span className="text-white">斗数</span>
+                  </>
+                )}
               </h1>
 
               <button
@@ -684,6 +746,28 @@ ${errorMsg}
                       chart={chart}
                     />
                   </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* 梅花易数（占位版） */}
+          {step === 'meihua' && (
+            <motion.div
+              key="meihua"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-screen pt-14"
+            >
+              <div className="h-full flex flex-col">
+                <div className="flex-1 min-h-0">
+                  <ChatInterface
+                    messages={messages}
+                    onSendMessage={handleSendMeihuaMessage}
+                    isLoading={isLoading}
+                    currentCategory={currentCategory || 'general'}
+                  />
                 </div>
               </div>
             </motion.div>

@@ -79,8 +79,16 @@ export function CategorySelect({ onSelect }: CategorySelectProps) {
                   </div>
                 )}
 
+                {/* 特殊标记：梅花易数 */}
+                {category.id === 'meihua' && (
+                  <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-600/20 border border-cyan-500/30">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                    <span className="text-sm text-cyan-200">Beta</span>
+                  </div>
+                )}
+
                 {/* 其他分类标记：开发中 */}
-                {category.id !== 'ziwei' && (
+                {category.id !== 'ziwei' && category.id !== 'meihua' && (
                   <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
                     <span className="text-sm text-gray-500">即将开放</span>
                   </div>

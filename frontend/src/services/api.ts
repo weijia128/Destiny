@@ -4,6 +4,72 @@ import { retrieveKnowledge, buildAnalysisPrompt } from './agentService';
 
 const API_BASE = '/api';
 
+type V2Role = 'user' | 'assistant' | 'system';
+interface V2Message {
+  role: V2Role;
+  content: string;
+}
+
+interface V2AnalyzeResponseData {
+  narrative: string;
+}
+
+function buildDivinationBirthInfo(): BirthInfo {
+  const now = new Date();
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+    hour: now.getHours(),
+    gender: 'male',
+    isLunar: false,
+  };
+}
+
+/**
+ * v2 analyze 通用调用（最小封装）
+ */
+export async function analyzeV2(body: {
+  birthInfo: BirthInfo;
+  userMessage: string;
+  history: V2Message[];
+  preferredTypes?: string[];
+  subCategory?: AnalysisCategory;
+}): Promise<ApiResponse<V2AnalyzeResponseData>> {
+  try {
+    const response = await fetch(`${API_BASE}/v2/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const json = await response.json() as ApiResponse<V2AnalyzeResponseData>;
+    if (!response.ok) {
+      return { success: false, error: json.error || `请求失败: ${response.status}` };
+    }
+    return json;
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '请求失败' };
+  }
+}
+
+/**
+ * 梅花易数（占位版）调用：强制路由到 meihua Agent
+ */
+export async function analyzeMeihua(
+  message: string,
+  category: AnalysisCategory,
+  history: ChatMessage[]
+): Promise<ApiResponse<V2AnalyzeResponseData>> {
+  return analyzeV2({
+    birthInfo: buildDivinationBirthInfo(),
+    userMessage: message,
+    history: history.slice(-10).map(m => ({ role: m.role as V2Role, content: m.content })),
+    preferredTypes: ['meihua'],
+    subCategory: category,
+  });
+}
+
 /**
  * API 响应结果（带统计信息）
  */
