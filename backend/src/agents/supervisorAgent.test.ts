@@ -82,6 +82,7 @@ describe('SupervisorAgent', () => {
     expect(getLastInput()).toBeTruthy();
     expect(getLastInput()!.currentYear).toBe(2026);
     expect(getLastInput()!.currentAge).toBe(36);
+    expect(getLastInput()!.functionCalling?.enabled).toBe(true);
   });
 
   it('dispatchStream 应注入 currentYear 与 currentAge', async () => {
@@ -107,5 +108,34 @@ describe('SupervisorAgent', () => {
     expect(getLastInput()).toBeTruthy();
     expect(getLastInput()!.currentYear).toBe(2026);
     expect(getLastInput()!.currentAge).toBe(36);
+    expect(getLastInput()!.functionCalling?.enabled).toBe(true);
+  });
+
+  it('dispatchAnalyze 应透传 function-calling 配置', async () => {
+    const { agent, getLastInput } = createStubAgent('meihua');
+    agentRegistry.register(agent);
+
+    const request: V2AnalyzeRequest = {
+      birthInfo,
+      userMessage: '测试 function calling',
+      history: [],
+      preferredTypes: ['meihua'],
+      subCategory: 'general' as SubCategory,
+      enableFunctionCalling: false,
+      maxFunctionIterations: 2,
+      maxToolCalls: 1,
+      allowedTools: ['knowledge_search'],
+    };
+
+    const dispatch = buildDispatch(request);
+    await dispatchAnalyze(request, dispatch);
+
+    expect(getLastInput()).toBeTruthy();
+    expect(getLastInput()!.functionCalling).toEqual({
+      enabled: false,
+      maxIterations: 2,
+      maxToolCalls: 1,
+      allowedTools: ['knowledge_search'],
+    });
   });
 });

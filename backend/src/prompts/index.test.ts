@@ -68,7 +68,8 @@ describe('PromptBuilderFactory', () => {
       expect(types).toContain('qimen');
       expect(types).toContain('liuyao');
       expect(types).toContain('palmistry');
-      expect(types.length).toBe(5);
+      expect(types).toContain('meihua');
+      expect(types.length).toBe(6);
     });
   });
 

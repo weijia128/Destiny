@@ -9,6 +9,8 @@ import type {
   SubCategory,
   ChatMessage,
 } from '../types/index.js';
+import type { FunctionCallingConfig, FunctionCallingTrace } from '../types/functionCalling.js';
+import type { RetrievalDebugInfo } from '../types/retrieval.js';
 
 /**
  * Sub-Agent 输入
@@ -21,6 +23,10 @@ export interface SubAgentInput {
   readonly history: ReadonlyArray<ChatMessage>;
   readonly currentYear?: number;
   readonly currentAge?: number;
+  /** 请求追踪 ID，用于关联同一请求的所有日志 */
+  readonly traceId?: string;
+  /** Sub-Agent function-calling 配置 */
+  readonly functionCalling?: FunctionCallingConfig;
 }
 
 /**
@@ -42,6 +48,8 @@ export interface SubAgentMetadata {
   readonly knowledgeUsed: ReadonlyArray<string>;
   readonly executionTimeMs: number;
   readonly modelUsed?: string;
+  readonly retrieval?: RetrievalDebugInfo;
+  readonly functionCalling?: FunctionCallingTrace;
 }
 
 /**
@@ -118,6 +126,18 @@ export interface V2AnalyzeRequest {
   readonly history: ReadonlyArray<ChatMessage>;
   readonly preferredTypes?: ReadonlyArray<DestinyType>;
   readonly subCategory?: SubCategory;
+  /** 请求追踪 ID，由 HTTP 层注入，透传至所有 Sub-Agent */
+  readonly traceId?: string;
+  /** 是否开启 Sub-Agent function-calling（默认开启） */
+  readonly enableFunctionCalling?: boolean;
+  /** function-calling 最大循环轮次 */
+  readonly maxFunctionIterations?: number;
+  /** function-calling 最大工具调用次数 */
+  readonly maxToolCalls?: number;
+  /** function-calling 允许的工具白名单 */
+  readonly allowedTools?: ReadonlyArray<string>;
+  /** 是否启用“同出生信息复用整段分析结果”缓存（默认 true） */
+  readonly reuseBirthInfoCache?: boolean;
 }
 
 /**

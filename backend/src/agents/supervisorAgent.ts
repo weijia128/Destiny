@@ -3,6 +3,7 @@
  * 分析用户意图，将请求分发给合适的 Sub-Agent，支持并行执行
  */
 
+import { randomUUID } from 'crypto';
 import type {
   SupervisorDispatch,
   SubAgentInput,
@@ -98,6 +99,13 @@ export async function dispatchAnalyze(
   const subCategory = detectSubCategory(request.userMessage, request.subCategory);
   const currentYear = new Date().getFullYear();
   const currentAge = currentYear - request.birthInfo.year;
+  const traceId = request.traceId ?? randomUUID();
+  const functionCallingConfig = {
+    enabled: request.enableFunctionCalling ?? true,
+    maxIterations: request.maxFunctionIterations,
+    maxToolCalls: request.maxToolCalls,
+    allowedTools: request.allowedTools,
+  } as const;
 
   const tasks = dispatch.targetAgents.map(async (destinyType) => {
     const agent = agentRegistry.get(destinyType);
@@ -114,6 +122,8 @@ export async function dispatchAnalyze(
       history: request.history,
       currentYear,
       currentAge,
+      traceId,
+      functionCalling: functionCallingConfig,
     };
 
     try {
@@ -139,6 +149,13 @@ export async function *dispatchStream(
   const subCategory = detectSubCategory(request.userMessage, request.subCategory);
   const currentYear = new Date().getFullYear();
   const currentAge = currentYear - request.birthInfo.year;
+  const traceId = request.traceId ?? randomUUID();
+  const functionCallingConfig = {
+    enabled: request.enableFunctionCalling ?? true,
+    maxIterations: request.maxFunctionIterations,
+    maxToolCalls: request.maxToolCalls,
+    allowedTools: request.allowedTools,
+  } as const;
   const primaryAgent = agentRegistry.get(dispatch.primaryAgent);
 
   if (!primaryAgent) {
@@ -155,6 +172,8 @@ export async function *dispatchStream(
     history: request.history,
     currentYear,
     currentAge,
+    traceId,
+    functionCalling: functionCallingConfig,
   };
 
   yield* primaryAgent.analyzeStream(input);

@@ -113,6 +113,20 @@ describe('KnowledgeService', () => {
       expect(ranked.length).toBeLessThanOrEqual(5);
     });
 
+    it('应该支持自定义返回数量', () => {
+      const manyEntries: KnowledgeEntry[] = Array.from({ length: 10 }, (_, i) => ({
+        id: `${i}`,
+        destinyType: 'ziwei',
+        subCategory: 'career',
+        title: `条目 ${i}`,
+        content: `内容 ${i}`,
+        keywords: ['测试'],
+      }));
+
+      const ranked = KnowledgeService.rank(manyEntries, '测试', 3);
+      expect(ranked.length).toBe(3);
+    });
+
     it('空数组应返回空结果', () => {
       const ranked = KnowledgeService.rank([], '测试');
       expect(ranked.length).toBe(0);

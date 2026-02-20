@@ -11,6 +11,8 @@ import type { GraphState } from '../types/graph.js';
 import { StateAnnotation } from '../types/graph.js';
 import * as nodes from './nodes.js';
 import { createReactGraph } from './reactGraph.js';
+import { agentRegistry } from '../agents/registry.js';
+import type { SubAgentInput } from '../agents/types.js';
 
 /**
  * ReAct 流程包装节点
@@ -189,11 +191,10 @@ export async function analyzeDestiny(
 /**
  * 便捷函数：流式执行分析
  *
- * 策略: 执行图直到 analyze 节点获取 promptData，
- * 然后手动调用 InterpretationService.stream() 实现 AI 流式响应
+ * 主路径: 委托给 ZiweiAgent.analyzeStream()，复用 Multi-Agent 的 prompt 和知识检索逻辑。
+ * 降级路径: 如果 ZiweiAgent 不可用，降级到原 LangGraph 图逻辑。
  *
- * 注意: LangGraph 的 stream() API 在当前版本中不完全兼容 async iterable，
- * 因此使用 invoke() 来获取 promptData，然后手动流式调用 AI
+ * 注意: v1 调用约定 — history 最后一项为当前用户消息，其余为对话历史。
  */
 export async function* streamAnalyzeDestiny(
   birthInfo: GraphState['birthInfo'],
@@ -201,6 +202,31 @@ export async function* streamAnalyzeDestiny(
   chartText: string,
   history: GraphState['history']
 ): AsyncGenerator<string> {
+  // v1 convention: fullHistory = [...conversationHistory, currentPrompt]
+  const userMessage = history[history.length - 1]?.content ?? '';
+  const conversationHistory = history.slice(0, -1);
+
+  const ziweiAgent = agentRegistry.get('ziwei');
+  if (ziweiAgent) {
+    const currentYear = new Date().getFullYear();
+    const currentAge = birthInfo.year > 0 ? currentYear - birthInfo.year : undefined;
+
+    const input: SubAgentInput = {
+      birthInfo,
+      subCategory: category,
+      chartText,
+      userMessage,
+      history: conversationHistory,
+      currentYear,
+      currentAge,
+    };
+
+    yield* ziweiAgent.analyzeStream(input);
+    return;
+  }
+
+  // 降级路径：ZiweiAgent 不可用时使用原 LangGraph 图
+  process.stdout.write(JSON.stringify({ event: 'ziwei_agent_unavailable_fallback' }) + '\n');
   const { InterpretationService } = await import('../services/interpretationService.js');
   const graph = getDestinyGraph();
 
@@ -211,19 +237,11 @@ export async function* streamAnalyzeDestiny(
     history,
   };
 
-  // 使用 invoke 执行图直到完成
-  // 这将触发: router -> retrieveCareer -> analyze -> respond
   const result = await graph.invoke(initialState as any);
 
-  // 策略：如果 respondNode 已经生成了 response，直接使用
-  // 只有当没有 response 但有 promptData 时才进行流式 AI 调用
   if (result.response) {
-    // respondNode 已经生成了响应（包括 mock 回复）
-    console.log('📝 Using pre-generated response from respondNode');
     yield result.response;
   } else if (result.promptData) {
-    // 没有 response 但有 promptData，需要流式调用 AI
-    console.log('📡 Starting AI streaming...');
     yield* InterpretationService.stream(result.promptData as any);
   } else {
     throw new Error('分析失败：未生成 promptData 或 response');

@@ -1,5 +1,7 @@
 import { Tool } from './types.js';
 import { KnowledgeService } from '../services/knowledgeService.js';
+import { RetrievalService } from '../services/retrievalService.js';
+import type { DestinyType, SubCategory } from '../types/index.js';
 
 /**
  * 知识库搜索工具
@@ -15,27 +17,51 @@ export const knowledgeSearchTool: Tool = {
 - 当需要补充专业知识以支持分析时
 
 参数说明：
-- category: 分析类别（career/wealth/relationship/health/family/general）
-- keywords: 搜索关键词数组
+- destinyType/subCategory/query: 新版检索参数（推荐）
+- category/keywords: 旧版兼容参数
 - chartText: 命盘文本（可选，用于相关性排序）`,
 
   parameters: [
     {
+      name: 'destinyType',
+      type: 'string',
+      description: '命理大类（ziwei/bazi/meihua）',
+      required: false,
+    },
+    {
+      name: 'subCategory',
+      type: 'string',
+      description: '子分类（career/wealth/...）',
+      required: false,
+    },
+    {
+      name: 'query',
+      type: 'string',
+      description: '检索查询语句（推荐）',
+      required: false,
+    },
+    {
       name: 'category',
       type: 'string',
-      description: '分析类别',
-      required: true,
+      description: '分析类别（旧版兼容）',
+      required: false,
     },
     {
       name: 'keywords',
       type: 'array',
-      description: '搜索关键词数组，如 ["紫微", "事业", "命宫"]',
-      required: true,
+      description: '搜索关键词数组（旧版兼容）',
+      required: false,
     },
     {
       name: 'chartText',
       type: 'string',
       description: '命盘文本（可选，用于提升相关性排序）',
+      required: false,
+    },
+    {
+      name: 'maxItems',
+      type: 'number',
+      description: '返回条目上限（默认 5）',
       required: false,
     },
   ],
@@ -46,32 +72,74 @@ export const knowledgeSearchTool: Tool = {
     const startTime = Date.now();
 
     try {
-      const { category, keywords, chartText } = params as {
-        category: string;
-        keywords: string[];
+      const {
+        destinyType,
+        subCategory,
+        query,
+        category,
+        keywords,
+        chartText,
+        maxItems = 5,
+      } = params as {
+        destinyType?: DestinyType;
+        subCategory?: SubCategory;
+        query?: string;
+        category?: string;
+        keywords?: string[];
         chartText?: string;
+        maxItems?: number;
       };
 
-      // 调用知识服务
-      const entries = await KnowledgeService.search(
-        category as any,
-        keywords
-      );
+      // 新版：按术数 + 子分类统一检索
+      if (destinyType && subCategory) {
+        const retrieval = await RetrievalService.retrieve({
+          destinyType,
+          subCategory,
+          chartText: chartText || '',
+          userMessage: query || keywords?.join(' ') || '',
+        });
 
-      // 如果提供了 chartText，进行相关性排序
-      const rankedEntries = chartText
-        ? KnowledgeService.rank(entries, chartText)
-        : entries;
+        const limit = Number.isInteger(maxItems) ? Math.max(1, Math.min(10, maxItems)) : 5;
+        const slicedItems = retrieval.items.slice(0, limit);
+        const slicedEntries = slicedItems.map(item => item.entry);
 
-      // 格式化结果
-      const formattedResult = KnowledgeService.formatForAI(rankedEntries);
+        return {
+          success: true,
+          data: {
+            entries: slicedEntries,
+            formatted: KnowledgeService.formatForAI(slicedEntries),
+            count: slicedEntries.length,
+            retrieval: retrieval.debug,
+          },
+          toolName: 'knowledge_search',
+          executionTime: Date.now() - startTime,
+        };
+      }
+
+      // 旧版兼容：category + keywords
+      const normalizedCategory = (category || 'general') as SubCategory;
+      const normalizedKeywords = Array.isArray(keywords) ? keywords : [];
+      const fallbackQuery = query || normalizedKeywords.join(' ');
+
+      const fallbackRetrieval = await RetrievalService.retrieve({
+        destinyType: 'ziwei',
+        subCategory: normalizedCategory,
+        chartText: chartText || '',
+        userMessage: fallbackQuery,
+      });
+
+      const limit = Number.isInteger(maxItems) ? Math.max(1, Math.min(10, maxItems)) : 5;
+      const fallbackEntries = fallbackRetrieval.items
+        .slice(0, limit)
+        .map(item => item.entry);
 
       return {
         success: true,
         data: {
-          entries: rankedEntries,
-          formatted: formattedResult,
-          count: rankedEntries.length,
+          entries: fallbackEntries,
+          formatted: KnowledgeService.formatForAI(fallbackEntries),
+          count: fallbackEntries.length,
+          retrieval: fallbackRetrieval.debug,
         },
         toolName: 'knowledge_search',
         executionTime: Date.now() - startTime,

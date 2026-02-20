@@ -3,11 +3,13 @@
  * 封装 BaziService 计算 + 知识检索 + BaziPromptBuilder
  */
 
+import { randomUUID } from 'crypto';
 import type { SubAgent, SubAgentInput, SubAgentOutput, SubAgentMetadata } from './types.js';
 import type { BirthInfo, DestinyType, SubCategory } from '../types/index.js';
+import type { RetrievalResult } from '../types/retrieval.js';
 import { BaziService } from '../services/baziService.js';
-import { KnowledgeService } from '../services/knowledgeService.js';
 import { InterpretationService } from '../services/interpretationService.js';
+import { RetrievalService } from '../services/retrievalService.js';
 import { promptBuilderFactory } from '../prompts/index.js';
 
 const BAZI_CATEGORIES: ReadonlyArray<SubCategory> = [
@@ -41,6 +43,8 @@ export class BaziAgent implements SubAgent {
    */
   async analyze(input: SubAgentInput): Promise<SubAgentOutput> {
     const startTime = Date.now();
+    const traceId = input.traceId ?? randomUUID();
+    process.stdout.write(JSON.stringify({ traceId, agent: this.name, event: 'analyze_start', subCategory: input.subCategory }) + '\n');
 
     // 知识检索
     const knowledgeContext = await this.retrieveKnowledge(input);
@@ -59,8 +63,18 @@ export class BaziAgent implements SubAgent {
       },
     );
 
-    // 调用 AI
-    const analysis = await InterpretationService.callAI(promptData);
+    // 调用 AI（支持 function-calling 循环）
+    const aiResult = await InterpretationService.callAIWithFunctionLoop(promptData, {
+      config: input.functionCalling,
+      toolContext: {
+        traceId,
+        destinyType: this.destinyType,
+        subCategory: input.subCategory,
+        chartText: input.chartText,
+        userMessage: input.userMessage,
+      },
+    });
+    const analysis = aiResult.answer;
 
     const executionTimeMs = Date.now() - startTime;
 
@@ -68,7 +82,11 @@ export class BaziAgent implements SubAgent {
       chartSummary: input.chartText.slice(0, 200),
       knowledgeUsed: knowledgeContext.titles,
       executionTimeMs,
+      retrieval: knowledgeContext.debug,
+      functionCalling: aiResult.trace,
     };
+
+    process.stdout.write(JSON.stringify({ traceId, agent: this.name, event: 'analyze_done', subCategory: input.subCategory, latencyMs: executionTimeMs }) + '\n');
 
     return {
       destinyType: this.destinyType,
@@ -83,42 +101,42 @@ export class BaziAgent implements SubAgent {
    * 流式分析
    */
   async *analyzeStream(input: SubAgentInput): AsyncGenerator<string> {
-    const knowledgeContext = await this.retrieveKnowledge(input);
+    const traceId = input.traceId ?? randomUUID();
+    const startTime = Date.now();
+    process.stdout.write(JSON.stringify({ traceId, agent: this.name, event: 'stream_start', subCategory: input.subCategory }) + '\n');
 
-    const builder = promptBuilderFactory.getBuilder('bazi')!;
-    const promptData = builder.buildPrompt(
-      input.chartText,
-      input.subCategory,
-      knowledgeContext.text,
-      input.userMessage,
-      [...input.history],
-      {
-        currentYear: input.currentYear,
-        currentAge: input.currentAge,
-      },
-    );
+    try {
+      const knowledgeContext = await this.retrieveKnowledge(input);
 
-    yield* InterpretationService.stream(promptData);
+      const builder = promptBuilderFactory.getBuilder('bazi')!;
+      const promptData = builder.buildPrompt(
+        input.chartText,
+        input.subCategory,
+        knowledgeContext.text,
+        input.userMessage,
+        [...input.history],
+        {
+          currentYear: input.currentYear,
+          currentAge: input.currentAge,
+        },
+      );
+
+      yield* InterpretationService.stream(promptData);
+    } finally {
+      process.stdout.write(JSON.stringify({ traceId, agent: this.name, event: 'stream_done', subCategory: input.subCategory, latencyMs: Date.now() - startTime }) + '\n');
+    }
   }
 
   /**
    * 知识检索（八字知识库）
    */
-  private async retrieveKnowledge(input: SubAgentInput): Promise<{ text: string; titles: string[] }> {
-    try {
-      const entries = await KnowledgeService.retrieveByCategory(
-        'bazi',
-        input.subCategory,
-        input.chartText,
-        input.userMessage,
-      );
-      const ranked = KnowledgeService.rank(entries, input.userMessage);
-      return {
-        text: KnowledgeService.formatForAI(ranked),
-        titles: ranked.slice(0, 5).map(e => e.title),
-      };
-    } catch {
-      return { text: '', titles: [] };
-    }
+  private async retrieveKnowledge(input: SubAgentInput): Promise<RetrievalResult> {
+    return RetrievalService.retrieve({
+      destinyType: 'bazi',
+      subCategory: input.subCategory,
+      chartText: input.chartText,
+      userMessage: input.userMessage,
+      traceId: input.traceId,
+    });
   }
 }

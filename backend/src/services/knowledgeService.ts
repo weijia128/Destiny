@@ -17,7 +17,7 @@ export class KnowledgeService {
    * @param subCategory - 子分类
    * @param chartText - 命盘文本
    * @param query - 用户查询
-   * @returns 匹配的知识条目
+   * @returns 合并后的知识条目（未排序）
    */
   static async retrieveByCategory(
     destinyType: DestinyType,
@@ -25,6 +25,21 @@ export class KnowledgeService {
     chartText: string,
     query: string
   ): Promise<KnowledgeEntry[]> {
+    const result = await this.retrieveByCategoryWithSource(destinyType, subCategory, chartText, query);
+    return [...result.sharedEntries, ...result.specificEntries];
+  }
+
+  /**
+   * 根据命理大类和子分类检索知识（含来源拆分）
+   *
+   * @returns 共享知识与专属知识分离结果
+   */
+  static async retrieveByCategoryWithSource(
+    destinyType: DestinyType,
+    subCategory: SubCategory,
+    chartText: string,
+    query: string
+  ): Promise<{ sharedEntries: KnowledgeEntry[]; specificEntries: KnowledgeEntry[] }> {
     try {
       // 1. 加载共享知识
       const sharedEntries = await this.loadSharedKnowledge(subCategory);
@@ -37,12 +52,10 @@ export class KnowledgeService {
         query
       );
 
-      // 3. 合并并排序
-      const allEntries = [...sharedEntries, ...specificEntries];
-      return this.rank(allEntries, chartText + ' ' + query);
+      return { sharedEntries, specificEntries };
     } catch (error) {
       console.error(`Failed to retrieve knowledge for ${destinyType}/${subCategory}:`, error);
-      return [];
+      return { sharedEntries: [], specificEntries: [] };
     }
   }
 
@@ -70,7 +83,8 @@ export class KnowledgeService {
   ): Promise<KnowledgeEntry[]> {
     try {
       // 动态导入: ../knowledge/{destinyType}/{subCategory}.js
-      const module = await import(`../knowledge/${destinyType}/${subCategory}.js`);
+      const modulePath = `../knowledge/${destinyType}/${subCategory}.js`;
+      const module = await import(/* @vite-ignore */ modulePath);
 
       // 调用模块的 retrieve 函数
       if (module.retrieve) {
@@ -79,13 +93,17 @@ export class KnowledgeService {
 
       return module.entries || [];
     } catch (error) {
-      console.error(`Failed to load ${destinyType}/${subCategory} knowledge:`, error);
-
       // 回退到该大类的 general 知识库
       try {
-        const generalModule = await import(`../knowledge/${destinyType}/general.js`);
+        const generalModulePath = `../knowledge/${destinyType}/general.js`;
+        const generalModule = await import(/* @vite-ignore */ generalModulePath);
         return generalModule.retrieve ? generalModule.retrieve(chartText, query) : [];
-      } catch {
+      } catch (fallbackError) {
+        console.error(
+          `Failed to load ${destinyType}/${subCategory} knowledge and fallback general knowledge:`,
+          error,
+          fallbackError
+        );
         return [];
       }
     }
@@ -146,7 +164,8 @@ export class KnowledgeService {
     keywords: string[]
   ): Promise<KnowledgeEntry[]> {
     try {
-      const module = await import(`../knowledge/${category}.js`);
+      const modulePath = `../knowledge/${category}.js`;
+      const module = await import(/* @vite-ignore */ modulePath);
 
       // 检查模块是否有 searchByKeywords 方法
       if (module.searchByKeywords) {
@@ -172,10 +191,16 @@ export class KnowledgeService {
    *
    * @param entries - 知识条目数组
    * @param query - 查询文本
-   * @returns 排序后的知识条目（最多返回 5 条）
+   * @param limit - 返回数量上限（默认 5）
+   * @returns 排序后的知识条目
    */
-  static rank(entries: KnowledgeEntry[], query: string): Array<KnowledgeEntry & { score: number }> {
+  static rank(
+    entries: KnowledgeEntry[],
+    query: string,
+    limit = 5
+  ): Array<KnowledgeEntry & { score: number }> {
     const queryLower = query.toLowerCase();
+    const safeLimit = Number.isFinite(limit) ? Math.max(0, limit) : 5;
 
     return entries
       .map(entry => ({
@@ -183,7 +208,7 @@ export class KnowledgeService {
         score: this.calculateRelevance(entry, queryLower),
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
+      .slice(0, safeLimit);
   }
 
   /**

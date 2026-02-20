@@ -21,6 +21,17 @@ export interface ToolParameter {
 }
 
 /**
+ * 工具执行上下文（可用于日志与默认参数补全）
+ */
+export interface ToolExecutionContext {
+  traceId?: string;
+  destinyType?: string;
+  subCategory?: string;
+  chartText?: string;
+  userMessage?: string;
+}
+
+/**
  * 工具处理器函数签名
  */
 export type ToolHandler = (params: Record<string, unknown>) => Promise<ToolResult>;
@@ -43,6 +54,7 @@ export interface ToolCallRequest {
   toolName: string;
   parameters: Record<string, unknown>;
   reasoning?: string; // AI 的推理过程（后台记录）
+  context?: ToolExecutionContext;
 }
 
 /**

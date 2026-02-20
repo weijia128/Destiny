@@ -10,9 +10,16 @@ import '../config/env.js';
 import Anthropic from '@anthropic-ai/sdk';
 import type { PromptData } from '../types/graph.js';
 import type { SubCategory, ChatMessage, AIProvider, MiniMaxMessage } from '../types/index.js';
+import type {
+  FunctionCallingConfig,
+  FunctionCallingResult,
+  FunctionCallingToolContext,
+} from '../types/functionCalling.js';
 import { createMiniMaxClient } from '../clients/minimaxClient.js';
 import { createDeepSeekClient, type DeepSeekClient } from '../clients/deepseekClient.js';
+import { resolveFunctionCallingConfig } from '../config/functionCalling.js';
 import { promptBuilderFactory } from '../prompts/index.js';
+import { FunctionCallingService } from './functionCallingService.js';
 
 /**
  * AI 提供者配置
@@ -239,6 +246,28 @@ export class InterpretationService {
 
     // 没有可用的 AI 客户端，返回模拟响应
     return this.getMockResponse();
+  }
+
+  /**
+   * 基于 Function-calling 循环调用 AI（非流式）
+   */
+  static async callAIWithFunctionLoop(
+    promptData: PromptData,
+    options?: {
+      config?: FunctionCallingConfig;
+      toolContext?: FunctionCallingToolContext;
+    }
+  ): Promise<FunctionCallingResult> {
+    const config = resolveFunctionCallingConfig(options?.config);
+
+    return FunctionCallingService.run(
+      {
+        promptData,
+        config,
+        toolContext: options?.toolContext,
+      },
+      async (nextPromptData) => this.callAI(nextPromptData)
+    );
   }
 
   /**

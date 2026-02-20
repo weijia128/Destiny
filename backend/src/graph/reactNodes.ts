@@ -220,30 +220,16 @@ export async function reactToolCallNode(
   const latestCall = toolCalls[toolCalls.length - 1];
 
   try {
-    // 查找工具
-    const tool = toolRegistry.get(latestCall.toolName);
-    if (!tool) {
-      throw new Error(`Tool not found: ${latestCall.toolName}`);
-    }
-
     console.log(`🔧 执行工具: ${latestCall.toolName}`, latestCall.parameters);
 
-    // 执行工具
-    const result = await tool.handler(latestCall.parameters);
-
-    // 格式化观察结果
-    const observation = formatToolObservation(result);
+    const toolResponse = await toolRegistry.execute(latestCall);
 
     console.log(`✅ 工具执行完成: ${latestCall.toolName}`);
 
     return {
       toolResults: [
         ...(state.toolResults || []),
-        {
-          toolName: latestCall.toolName,
-          result,
-          observation,
-        },
+        toolResponse,
       ],
       reactPhase: 'observation',
     };
@@ -265,21 +251,6 @@ export async function reactToolCallNode(
       reactPhase: 'observation', // 继续循环，让 AI 知道出错
     };
   }
-}
-
-/**
- * 格式化工具观察结果
- */
-function formatToolObservation(result: any): string {
-  if (!result.success) {
-    return `工具执行失败: ${result.error}`;
-  }
-
-  if (result.data?.formatted) {
-    return result.data.formatted;
-  }
-
-  return JSON.stringify(result.data, null, 2);
 }
 
 /**

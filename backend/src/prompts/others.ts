@@ -228,6 +228,78 @@ ${knowledge}
 }
 
 /**
+ * 梅花易数类别名称
+ */
+const MEIHUA_CATEGORY_NAMES: Record<string, string> = {
+  career: '事业运势',
+  wealth: '财运分析',
+  relationship: '感情姻缘',
+  health: '健康运势',
+  family: '家庭亲缘',
+  general: '综合占测',
+};
+
+/**
+ * 梅花易数 Prompt 构建器
+ */
+export class MeihuaPromptBuilder implements PromptBuilder {
+  getType(): string {
+    return 'meihua';
+  }
+
+  getSupportedCategories(): SubCategory[] {
+    return ['career', 'wealth', 'relationship', 'health', 'family', 'general'];
+  }
+
+  getCategoryName(category: SubCategory): string {
+    return MEIHUA_CATEGORY_NAMES[category] || '综合占测';
+  }
+
+  buildPrompt(
+    chartText: string,
+    category: SubCategory,
+    knowledge: string,
+    userMessage: string,
+    history: ChatMessage[],
+    personalization?: PromptPersonalization,
+  ): PromptBuildResult {
+    const categoryName = this.getCategoryName(category);
+    const personalizationBlock = buildPersonalizationBlock(personalization);
+
+    const systemPrompt = `你是一位精通梅花易数的占卜大师，名叫"梅花先生"。梅花易数以邵雍时间起卦法为核心，通过体用生克关系断定吉凶。
+
+当前占测主题：${categoryName}
+
+${personalizationBlock}
+
+【卦象信息】
+${chartText}
+
+【相关知识库】
+${knowledge}
+
+【解读要求】
+1. 首先解释上下卦的五行与自然象（天、泽、火、雷等）
+2. 说明体卦与用卦的位置（动爻决定）
+3. 根据体用关系（用生体/比和/体克用/体生用/用克体）给出吉凶判断
+4. 结合问题的具体情境（${categoryName}）给出实用建议
+5. 语言专业但通俗，避免过于抽象
+
+请根据以上卦象信息回答用户的占测问题，保持专业、客观的态度。`;
+
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      ...history.map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+      { role: 'user', content: userMessage },
+    ];
+
+    return { system: systemPrompt, messages, categoryName };
+  }
+}
+
+/**
  * 手相类别名称
  */
 const PALMISTRY_CATEGORY_NAMES: Record<string, string> = {

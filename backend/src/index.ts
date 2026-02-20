@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { ChatRequest, ApiResponse } from './types/index.js';
 import type { V2AnalyzeRequest } from './agents/types.js';
 import { initDatabase } from './database/index.js';
@@ -15,6 +15,7 @@ import { agentRegistry } from './agents/registry.js';
 import { ZiweiAgent } from './agents/ziweiAgent.js';
 import { BaziAgent } from './agents/baziAgent.js';
 import { MeihuaAgent } from './agents/meihuaAgent.js';
+import { BaziService } from './services/baziService.js';
 import { buildDispatch, dispatchAnalyze, dispatchStream } from './agents/supervisorAgent.js';
 import { fuseResults, fuseResultsStream } from './agents/fusionAgent.js';
 
@@ -39,6 +40,40 @@ function generateChartKey(chart: string, category: string, prompt: string): stri
   hash.update(category);
   hash.update(prompt); // 加入 prompt 使每个问题有独立缓存
   return hash.digest('hex').substring(0, 16);
+}
+
+/**
+ * v2 缓存键：基于 birthInfo + userMessage + subCategory 生成唯一哈希
+ * 前缀 v2_ 避免与 v1 缓存键碰撞
+ */
+function generateV2CacheKey(
+  birthInfo: { year: number; month: number; day: number; hour: number; gender: string },
+  userMessage: string,
+  subCategory?: string,
+): string {
+  const hash = createHash('sha256');
+  hash.update(`${birthInfo.year}-${birthInfo.month}-${birthInfo.day}-${birthInfo.hour}-${birthInfo.gender}`);
+  hash.update(userMessage);
+  hash.update(subCategory ?? 'general');
+  return 'v2_' + hash.digest('hex').substring(0, 16);
+}
+
+/**
+ * v2 出生信息级缓存键：基于 birthInfo + subCategory + dispatch 生成
+ * 用于同命主复用整段分析结果，减少模型重复调用
+ */
+function generateV2BirthCacheKey(
+  birthInfo: { year: number; month: number; day: number; hour: number; gender: string },
+  subCategory: string | undefined,
+  primaryAgent: string,
+  targetAgents: ReadonlyArray<string>,
+): string {
+  const hash = createHash('sha256');
+  hash.update(`${birthInfo.year}-${birthInfo.month}-${birthInfo.day}-${birthInfo.hour}-${birthInfo.gender}`);
+  hash.update(subCategory ?? 'general');
+  hash.update(primaryAgent);
+  hash.update(targetAgents.join('|'));
+  return 'v2_birth_' + hash.digest('hex').substring(0, 16);
 }
 
 const app = express();
@@ -674,6 +709,44 @@ app.delete('/api/reports/:filename', async (req, res) => {
 });
 
 // =====================================================
+// 八字盘面 API
+// =====================================================
+
+/**
+ * POST /api/bazi/chart
+ * 根据出生信息生成结构化八字命盘（JSON 格式）
+ */
+app.post('/api/bazi/chart', asyncHandler(async (req, res) => {
+  const { birthInfo } = req.body;
+
+  if (!birthInfo) {
+    throw new ValidationError('Missing required field: birthInfo', {
+      receivedFields: { birthInfo: !!birthInfo },
+    });
+  }
+
+  const { year, month, day, hour, gender } = birthInfo as Record<string, unknown>;
+  if (
+    typeof year !== 'number' || year < 1900 || year > 2100 ||
+    typeof month !== 'number' || month < 1 || month > 12 ||
+    typeof day !== 'number' || day < 1 || day > 31 ||
+    typeof hour !== 'number' || hour < 0 || hour > 23 ||
+    !['male', 'female'].includes(gender as string)
+  ) {
+    throw new ValidationError('Invalid birthInfo fields', {
+      expected: { year: '1900-2100', month: '1-12', day: '1-31', hour: '0-23', gender: 'male|female' },
+    });
+  }
+
+  const chart = BaziService.generate(birthInfo as Parameters<typeof BaziService.generate>[0]);
+
+  res.json({
+    success: true,
+    data: chart,
+  } as ApiResponse);
+}));
+
+// =====================================================
 // v2 API — Multi-Agent 分析端点
 // =====================================================
 
@@ -683,7 +756,18 @@ app.delete('/api/reports/:filename', async (req, res) => {
  */
 app.post('/api/v2/analyze', asyncHandler(async (req, res) => {
   const body = req.body as V2AnalyzeRequest;
-  const { birthInfo, userMessage, history = [], preferredTypes, subCategory } = body;
+  const {
+    birthInfo,
+    userMessage,
+    history = [],
+    preferredTypes,
+    subCategory,
+    enableFunctionCalling,
+    maxFunctionIterations,
+    maxToolCalls,
+    allowedTools,
+    reuseBirthInfoCache = true,
+  } = body;
 
   if (!birthInfo || !userMessage) {
     throw new ValidationError('Missing required fields: birthInfo, userMessage', {
@@ -691,13 +775,78 @@ app.post('/api/v2/analyze', asyncHandler(async (req, res) => {
     });
   }
 
-  console.log(`🤖 [v2] Analyze request: "${userMessage.slice(0, 50)}..."`);
+  const traceId = (req.headers['x-trace-id'] as string | undefined) ?? randomUUID();
+  process.stdout.write(JSON.stringify({ traceId, event: 'v2_analyze_start', userMessage: userMessage.slice(0, 50) }) + '\n');
 
-  const dispatch = buildDispatch({ birthInfo, userMessage, history, preferredTypes, subCategory });
-  console.log(`🔀 [v2] Dispatch → ${dispatch.targetAgents.join(', ')} (shouldFuse=${dispatch.shouldFuse})`);
+  // 检查缓存
+  const cacheKey = generateV2CacheKey(birthInfo, userMessage, subCategory);
+  const cacheCategory = `v2_${subCategory ?? 'general'}`;
+  const cached = cacheRepository.get(cacheKey, cacheCategory);
+  if (cached) {
+    if (cached.id) cacheRepository.incrementHitCount(cached.id);
+    process.stdout.write(JSON.stringify({ traceId, event: 'v2_cache_hit', cacheKey }) + '\n');
+    return res.json({
+      success: true,
+      data: { narrative: cached.result, agentResults: [], dispatch: null, fromCache: true },
+    } as ApiResponse);
+  }
+
+  const startTime = Date.now();
+  const dispatch = buildDispatch({
+    birthInfo,
+    userMessage,
+    history,
+    preferredTypes,
+    subCategory,
+    traceId,
+    enableFunctionCalling,
+    maxFunctionIterations,
+    maxToolCalls,
+    allowedTools,
+    reuseBirthInfoCache,
+  });
+  process.stdout.write(JSON.stringify({ traceId, event: 'v2_dispatch', targets: dispatch.targetAgents, shouldFuse: dispatch.shouldFuse }) + '\n');
+
+  // 出生信息级缓存（同命主整段分析复用）
+  if (reuseBirthInfoCache) {
+    const birthCacheKey = generateV2BirthCacheKey(
+      birthInfo,
+      subCategory,
+      dispatch.primaryAgent,
+      dispatch.targetAgents,
+    );
+    const birthCached = cacheRepository.get(birthCacheKey, 'v2_birth');
+    if (birthCached) {
+      if (birthCached.id) cacheRepository.incrementHitCount(birthCached.id);
+      process.stdout.write(JSON.stringify({ traceId, event: 'v2_birth_cache_hit', birthCacheKey }) + '\n');
+      return res.json({
+        success: true,
+        data: {
+          narrative: birthCached.result,
+          agentResults: [],
+          fusion: undefined,
+          dispatch,
+          fromCache: true,
+          cacheMode: 'birth_info',
+        },
+      } as ApiResponse);
+    }
+  }
 
   const agentResults = await dispatchAnalyze(
-    { birthInfo, userMessage, history, preferredTypes, subCategory },
+    {
+      birthInfo,
+      userMessage,
+      history,
+      preferredTypes,
+      subCategory,
+      traceId,
+      enableFunctionCalling,
+      maxFunctionIterations,
+      maxToolCalls,
+      allowedTools,
+      reuseBirthInfoCache,
+    },
     dispatch,
   );
 
@@ -714,6 +863,19 @@ app.post('/api/v2/analyze', asyncHandler(async (req, res) => {
     fusion = fusionOutput;
   } else {
     narrative = agentResults[0]?.analysis || '分析失败，未获得结果';
+  }
+
+  // 保存到缓存
+  const executionTime = (Date.now() - startTime) / 1000;
+  cacheRepository.save(cacheKey, cacheCategory, narrative, { executionTime });
+  if (reuseBirthInfoCache) {
+    const birthCacheKey = generateV2BirthCacheKey(
+      birthInfo,
+      subCategory,
+      dispatch.primaryAgent,
+      dispatch.targetAgents,
+    );
+    cacheRepository.save(birthCacheKey, 'v2_birth', narrative, { executionTime });
   }
 
   res.json({
@@ -734,16 +896,81 @@ app.post('/api/v2/analyze', asyncHandler(async (req, res) => {
 app.post('/api/v2/analyze/stream', async (req, res) => {
   try {
     const body = req.body as V2AnalyzeRequest;
-    const { birthInfo, userMessage, history = [], preferredTypes, subCategory } = body;
+    const {
+      birthInfo,
+      userMessage,
+      history = [],
+      preferredTypes,
+      subCategory,
+      enableFunctionCalling,
+      maxFunctionIterations,
+      maxToolCalls,
+      allowedTools,
+      reuseBirthInfoCache = true,
+    } = body;
 
     if (!birthInfo || !userMessage) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
-    console.log(`🤖 [v2/stream] Analyze request: "${userMessage.slice(0, 50)}..."`);
+    const traceId = (req.headers['x-trace-id'] as string | undefined) ?? randomUUID();
+    process.stdout.write(JSON.stringify({ traceId, event: 'v2_stream_start', userMessage: userMessage.slice(0, 50) }) + '\n');
 
-    const dispatch = buildDispatch({ birthInfo, userMessage, history, preferredTypes, subCategory });
-    console.log(`🔀 [v2/stream] Dispatch → ${dispatch.targetAgents.join(', ')}`);
+    // 检查缓存
+    const cacheKey = generateV2CacheKey(birthInfo, userMessage, subCategory);
+    const cacheCategory = `v2_stream_${subCategory ?? 'general'}`;
+    const cached = cacheRepository.get(cacheKey, cacheCategory);
+    if (cached) {
+      if (cached.id) cacheRepository.incrementHitCount(cached.id);
+      process.stdout.write(JSON.stringify({ traceId, event: 'v2_stream_cache_hit', cacheKey }) + '\n');
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.write(`data: ${JSON.stringify({ type: 'cache_hit', content: cached.result })}\n\n`);
+      res.end();
+      return;
+    }
+
+    const startTime = Date.now();
+    const dispatch = buildDispatch({
+      birthInfo,
+      userMessage,
+      history,
+      preferredTypes,
+      subCategory,
+      traceId,
+      enableFunctionCalling,
+      maxFunctionIterations,
+      maxToolCalls,
+      allowedTools,
+      reuseBirthInfoCache,
+    });
+    process.stdout.write(JSON.stringify({ traceId, event: 'v2_dispatch', targets: dispatch.targetAgents }) + '\n');
+
+    // 出生信息级缓存（同命主整段分析复用）
+    if (reuseBirthInfoCache) {
+      const birthCacheKey = generateV2BirthCacheKey(
+        birthInfo,
+        subCategory,
+        dispatch.primaryAgent,
+        dispatch.targetAgents,
+      );
+      const birthCached = cacheRepository.get(birthCacheKey, 'v2_stream_birth');
+      if (birthCached) {
+        if (birthCached.id) cacheRepository.incrementHitCount(birthCached.id);
+        process.stdout.write(JSON.stringify({ traceId, event: 'v2_stream_birth_cache_hit', birthCacheKey }) + '\n');
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.write(`data: ${JSON.stringify({ type: 'cache_hit', content: birthCached.result, cacheMode: 'birth_info' })}\n\n`);
+        res.end();
+        return;
+      }
+    }
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -753,11 +980,51 @@ app.post('/api/v2/analyze/stream', async (req, res) => {
     // 发送 dispatch 信息
     res.write(`data: ${JSON.stringify({ type: 'dispatch', dispatch })}\n\n`);
 
+    let fullResponse = '';
     for await (const chunk of dispatchStream(
-      { birthInfo, userMessage, history, preferredTypes, subCategory },
+      {
+        birthInfo,
+        userMessage,
+        history,
+        preferredTypes,
+        subCategory,
+        traceId,
+        enableFunctionCalling,
+        maxFunctionIterations,
+        maxToolCalls,
+        allowedTools,
+        reuseBirthInfoCache,
+      },
       dispatch,
     )) {
       res.write(chunk);
+      // 收集完整响应用于缓存
+      const match = chunk.match(/data: (.+)\n\n/);
+      if (match) {
+        try {
+          const data = JSON.parse(match[1]);
+          if (data.type === 'token' && data.content) {
+            fullResponse += data.content;
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      }
+    }
+
+    // 保存到缓存
+    if (fullResponse) {
+      const executionTime = (Date.now() - startTime) / 1000;
+      cacheRepository.save(cacheKey, cacheCategory, fullResponse, { executionTime });
+      if (reuseBirthInfoCache) {
+        const birthCacheKey = generateV2BirthCacheKey(
+          birthInfo,
+          subCategory,
+          dispatch.primaryAgent,
+          dispatch.targetAgents,
+        );
+        cacheRepository.save(birthCacheKey, 'v2_stream_birth', fullResponse, { executionTime });
+      }
     }
 
     res.end();

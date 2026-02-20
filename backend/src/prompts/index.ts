@@ -5,7 +5,7 @@
 
 import type { SubCategory, ChatMessage } from '../types/index.js';
 import { ZiweiPromptBuilder } from './ziwei.js';
-import { BaziPromptBuilder, QimenPromptBuilder, LiuyaoPromptBuilder, PalmistryPromptBuilder } from './others.js';
+import { BaziPromptBuilder, QimenPromptBuilder, LiuyaoPromptBuilder, PalmistryPromptBuilder, MeihuaPromptBuilder } from './others.js';
 
 /**
  * Prompt 构建结果
@@ -67,6 +67,7 @@ class PromptBuilderFactory {
     this.register(new QimenPromptBuilder());
     this.register(new LiuyaoPromptBuilder());
     this.register(new PalmistryPromptBuilder());
+    this.register(new MeihuaPromptBuilder());
   }
 
   /**
@@ -126,4 +127,4 @@ export const promptBuilderFactory = new PromptBuilderFactory();
 
 // 导出各个构建器类
 export { ZiweiPromptBuilder };
-export { BaziPromptBuilder, QimenPromptBuilder, LiuyaoPromptBuilder, PalmistryPromptBuilder };
+export { BaziPromptBuilder, QimenPromptBuilder, LiuyaoPromptBuilder, PalmistryPromptBuilder, MeihuaPromptBuilder };
