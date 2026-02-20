@@ -53,6 +53,80 @@ export async function analyzeV2(body: {
   }
 }
 
+// ─── 八字命盘数据类型 ────────────────────────────────────────────────────
+
+export interface BaziPillarData {
+  gan: string;
+  zhi: string;
+  ganWuxing: string;
+  zhiWuxing: string;
+  nayin: string;
+  hiddenGan: string[];
+  tenGod?: string;
+}
+
+export interface WuxingCountData {
+  木: number;
+  火: number;
+  土: number;
+  金: number;
+  水: number;
+}
+
+export interface YongshenData {
+  yongshenWuxing: string[];
+  jishenWuxing: string[];
+  seasonAdjust: string[];
+  isStrong: boolean;
+  hasTonggen: boolean;
+  description: string;
+}
+
+export interface DayunData {
+  startAge: number;
+  endAge: number;
+  gan: string;
+  zhi: string;
+  ganWuxing: string;
+  zhiWuxing: string;
+  tenGod: string;
+}
+
+export interface BaziChartData {
+  yearPillar: BaziPillarData;
+  monthPillar: BaziPillarData;
+  dayPillar: BaziPillarData;
+  hourPillar: BaziPillarData;
+  rigan: string;
+  riganWuxing: string;
+  wuxingCount: WuxingCountData;
+  dayunList: DayunData[];
+  currentDayun?: DayunData;
+  geju: string;
+  yongshen: YongshenData;
+  summary: string;
+}
+
+/**
+ * 生成八字命盘（调用后端 /api/bazi/chart）
+ */
+export async function generateBaziChart(birthInfo: BirthInfo): Promise<ApiResponse<BaziChartData>> {
+  try {
+    const response = await fetch(`${API_BASE}/bazi/chart`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ birthInfo }),
+    });
+    const json = await response.json() as ApiResponse<BaziChartData>;
+    if (!response.ok) {
+      return { success: false, error: json.error || `请求失败: ${response.status}` };
+    }
+    return json;
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '生成八字命盘失败' };
+  }
+}
+
 /**
  * 梅花易数（占位版）调用：强制路由到 meihua Agent
  */

@@ -11,9 +11,11 @@ import {
   ChatInterface,
   PalmistryForm,
   PalmistryDisplay,
+  BaziChartDisplay,
 } from '@/components';
 import { useAppStore } from '@/store';
-import { generateChart, streamChat, saveReportToServer, analyzeMeihua } from '@/services/api';
+import { generateChart, streamChat, saveReportToServer, analyzeMeihua, generateBaziChart, analyzeV2 } from '@/services/api';
+import type { BaziChartData } from '@/services/api';
 import { formatChartToReadableText, getCurrentMajorPeriod, getCurrentYearlyFortune } from '@/services/chartService';
 import { generatePalmReading } from '@/services/palmistryService';
 import type { BirthInfo, AnalysisCategory, ChatMessage, PalmAnalysisCategory, PalmReading } from '@/types';
@@ -69,15 +71,18 @@ function buildFollowUpPrompt(currentInfo: ReturnType<typeof getCurrentMajorPerio
   `.trim();
 }
 
-type AppStep = 'category' | 'birthInfo' | 'chart' | 'report' | 'analysis' | 'meihua' | 'palmistryForm' | 'palmistryResult';
+type AppStep = 'category' | 'birthInfo' | 'chart' | 'report' | 'analysis' | 'meihua' | 'palmistryForm' | 'palmistryResult' | 'baziChart' | 'baziAnalysis';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('category');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [report, setReport] = useState<string | null>(null);
   const [palmReading, setPalmReading] = useState<PalmReading | null>(null);
+  const [activeDestinyType, setActiveDestinyType] = useState<'ziwei' | 'bazi'>('ziwei');
+  const [baziChart, setBaziChart] = useState<BaziChartData | null>(null);
 
   const {
+    birthInfo,
     setBirthInfo,
     chart,
     setChart,
@@ -96,6 +101,13 @@ export default function App() {
   // 处理大类选择
   const handleCategorySelect = (categoryId: string) => {
     if (categoryId === 'ziwei') {
+      setActiveDestinyType('ziwei');
+      setStep('birthInfo');
+    } else if (categoryId === 'bazi') {
+      setActiveDestinyType('bazi');
+      resetAll();
+      setBaziChart(null);
+      setCurrentCategory('geju');
       setStep('birthInfo');
     } else if (categoryId === 'meihua') {
       resetAll();
@@ -113,7 +125,24 @@ export default function App() {
   const handleBirthInfoSubmit = async (info: BirthInfo) => {
     setIsLoading(true);
     setBirthInfo(info);
-    
+
+    if (activeDestinyType === 'bazi') {
+      try {
+        const result = await generateBaziChart(info);
+        if (result.success && result.data) {
+          setBaziChart(result.data);
+          setStep('baziChart');
+        } else {
+          alert(result.error || '生成八字命盘失败');
+        }
+      } catch (error) {
+        alert('生成八字命盘失败，请检查出生信息');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     try {
       const result = await generateChart(info);
       if (result.success && result.data) {
@@ -137,6 +166,62 @@ export default function App() {
     }
     setStep('analysis');
   };
+
+  // 进入八字分析
+  const handleEnterBaziAnalysis = () => {
+    if (!currentCategory) {
+      setCurrentCategory('geju');
+    }
+    setStep('baziAnalysis');
+  };
+
+  // 八字分析发送消息（非流式，通过 v2 BaziAgent）
+  const handleSendBaziMessage = useCallback(async (content: string) => {
+    const category = currentCategory || 'geju';
+
+    const userMsg: ChatMessage = {
+      id: generateId(),
+      role: 'user',
+      content,
+      timestamp: new Date(),
+      category,
+    };
+    addMessage(userMsg);
+
+    const aiMsgId = generateId();
+    addMessage({
+      id: aiMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      category,
+      isStreaming: true,
+    });
+
+    setIsLoading(true);
+    try {
+      if (!birthInfo) throw new Error('缺少出生信息');
+      const result = await analyzeV2({
+        birthInfo,
+        userMessage: content,
+        history: messages.slice(-10).map((m) => ({
+          role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content,
+        })),
+        preferredTypes: ['bazi'],
+        subCategory: category,
+      });
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '请求失败');
+      }
+      updateMessage(aiMsgId, result.data.narrative || '（无返回内容）');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'API 调用失败';
+      updateMessage(aiMsgId, `❌ **分析失败**\n\n${msg}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [birthInfo, currentCategory, messages, addMessage, updateMessage, setIsLoading]);
 
   // 处理手相分析提交
   const handlePalmistrySubmit = async (birthInfo: BirthInfo, category: PalmAnalysisCategory) => {
@@ -474,6 +559,12 @@ ${errorMsg}
         setStep('palmistryForm');
         resetPalmistry();
         break;
+      case 'baziChart':
+        setStep('birthInfo');
+        break;
+      case 'baziAnalysis':
+        setStep('baziChart');
+        break;
     }
   };
 
@@ -517,6 +608,11 @@ ${errorMsg}
                   <>
                     <span className="text-gradient-gold">手相</span>
                     <span className="text-white">占卜</span>
+                  </>
+                ) : step === 'baziChart' || step === 'baziAnalysis' ? (
+                  <>
+                    <span className="text-gradient-gold">八字</span>
+                    <span className="text-white">命理</span>
                   </>
                 ) : (
                   <>
@@ -768,6 +864,60 @@ ${errorMsg}
                     isLoading={isLoading}
                     currentCategory={currentCategory || 'general'}
                   />
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* 八字命盘展示 */}
+          {step === 'baziChart' && baziChart && (
+            <motion.div
+              key="baziChart"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="pt-20 pb-8 px-4"
+            >
+              <BaziChartDisplay
+                chart={baziChart}
+                onStartAnalysis={handleEnterBaziAnalysis}
+                birthYear={birthInfo?.year ?? new Date().getFullYear()}
+                birthMonth={birthInfo?.month}
+                birthDay={birthInfo?.day}
+              />
+            </motion.div>
+          )}
+
+          {/* 八字分析对话 */}
+          {step === 'baziAnalysis' && (
+            <motion.div
+              key="baziAnalysis"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-screen pt-14"
+            >
+              <div className="h-full flex">
+                {/* 侧边栏（桌面端） */}
+                <div className="hidden lg:block w-72 flex-shrink-0 border-r border-white/10 overflow-y-auto p-4">
+                  <h3 className="font-display text-base font-bold text-white mb-4">分析类别</h3>
+                  <AnalysisCategorySelector
+                    onSelect={setCurrentCategory}
+                    selectedCategory={currentCategory}
+                  />
+                </div>
+
+                {/* 聊天区域 */}
+                <div className="flex-1 flex flex-col min-w-0">
+                  <div className="flex-1 min-h-0">
+                    <ChatInterface
+                      messages={messages}
+                      onSendMessage={handleSendBaziMessage}
+                      isLoading={isLoading}
+                      currentCategory={currentCategory || 'geju'}
+                      onCategoryChange={setCurrentCategory}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>

@@ -1,0 +1,30 @@
+{
+  "name": "命理分析系统",
+  "short_name": "命理",
+  "description": "紫微斗数、八字命理、梅花易数综合分析系统",
+  "theme_color": "#1a1a2e",
+  "background_color": "#0d0d1a",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/",
+  "scope": "/",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    }
+  ]
+}
